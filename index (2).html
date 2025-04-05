@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>多帳戶風控工具｜正式網頁版</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+    th { background: #f0f0f0; }
+    input { width: 90px; }
+    .high-risk { background-color: #ffe0e0; }
+    .safe-entry { background-color: #e0ffe0; }
+  </style>
+</head>
+<body>
+  <h2>📊 多帳戶風控試算工具</h2>
+  <label>帳戶切換：
+    <select id="accountSelect"></select>
+    <button onclick="addAccount()">➕ 新增帳戶</button>
+  </label>
+
+  <table id="dataTable">
+    <thead>
+      <tr>
+        <th>代號</th><th>名稱</th><th>張數</th><th>買進</th><th>現價</th>
+        <th>成數%</th><th>預警%</th><th>Delta</th><th>Gamma</th><th>Theta</th>
+        <th>損益率</th><th>維持率</th><th>風險</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+
+  <button onclick="addRow()">➕ 新增標的</button>
+  <button onclick="saveData()">💾 儲存</button>
+
+  <script>
+    const nameMap = {
+      "2330": "台積電", "2317": "鴻海", "AAPL": "Apple", "TSLA": "Tesla", "NVDA": "NVIDIA"
+    };
+    let accounts = JSON.parse(localStorage.getItem("accounts") || "[]");
+    let currentAccount = localStorage.getItem("currentAccount") || "";
+
+    function renderAccounts() {
+      const sel = document.getElementById("accountSelect");
+      sel.innerHTML = "";
+      accounts.forEach(acc => {
+        const opt = document.createElement("option");
+        opt.value = acc; opt.textContent = acc;
+        if (acc === currentAccount) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.onchange = () => {
+        currentAccount = sel.value;
+        localStorage.setItem("currentAccount", currentAccount);
+        loadData();
+      };
+    }
+
+    function addAccount() {
+      const name = prompt("輸入帳戶名稱");
+      if (name && !accounts.includes(name)) {
+        accounts.push(name);
+        localStorage.setItem("accounts", JSON.stringify(accounts));
+        currentAccount = name;
+        localStorage.setItem("currentAccount", name);
+        renderAccounts(); loadData();
+      }
+    }
+
+    function addRow(data = {}) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><input value="${data.code || ''}" onchange="updateName(this)"></td>
+        <td><span>${data.name || ''}</span></td>
+        <td><input type="number" value="${data.qty || ''}"></td>
+        <td><input type="number" value="${data.buy || ''}"></td>
+        <td><input type="number" value="${data.now || ''}"></td>
+        <td><input type="number" value="${data.margin || 60}"></td>
+        <td><input type="number" value="${data.warn || 130}"></td>
+        <td><input type="number" value="${data.delta || ''}"></td>
+        <td><input type="number" value="${data.gamma || ''}"></td>
+        <td><input type="number" value="${data.theta || ''}"></td>
+        <td class="pl"></td><td class="mr"></td><td class="status"></td>
+      `;
+      document.getElementById("tableBody").appendChild(tr);
+      tr.querySelectorAll("input").forEach(i => i.oninput = () => calcRow(tr));
+      calcRow(tr);
+    }
+
+    function updateName(input) {
+      const code = input.value.toUpperCase();
+      const name = nameMap[code] || "—";
+      input.closest("tr").children[1].textContent = name;
+    }
+
+    function calcRow(tr) {
+      const inputs = tr.querySelectorAll("input");
+      const [code, qty, buy, now, margin, warn, delta, gamma, theta] = [...inputs].map(i => parseFloat(i.value));
+      const shares = (qty || 0) * 1000;
+      const pl = (now - buy) / buy * 100;
+      const mv = now * shares;
+      const loan = buy * shares * (margin / 100);
+      const mr = (mv / loan) * 100;
+
+      tr.querySelector(".pl").textContent = isFinite(pl) ? pl.toFixed(2) + "%" : "";
+      tr.querySelector(".mr").textContent = isFinite(mr) ? mr.toFixed(2) + "%" : "";
+
+      const status = tr.querySelector(".status");
+      tr.className = "";
+      if (isFinite(mr) && mr < warn && delta > 0.6 && gamma > 0.1) {
+        status.textContent = "⚠️ 高風險"; tr.classList.add("high-risk");
+      } else if (isFinite(mr) && mr > warn && theta < 0.2) {
+        status.textContent = "✅ 建議進場"; tr.classList.add("safe-entry");
+      } else {
+        status.textContent = "";
+      }
+    }
+
+    function saveData() {
+      const rows = document.querySelectorAll("#tableBody tr");
+      const data = [];
+      rows.forEach(tr => {
+        const inputs = tr.querySelectorAll("input");
+        data.push({
+          code: inputs[0].value, name: tr.children[1].textContent,
+          qty: inputs[2].value, buy: inputs[3].value, now: inputs[4].value,
+          margin: inputs[5].value, warn: inputs[6].value,
+          delta: inputs[7].value, gamma: inputs[8].value, theta: inputs[9].value
+        });
+      });
+      localStorage.setItem("data_" + currentAccount, JSON.stringify(data));
+      alert("✅ 資料已儲存");
+    }
+
+    function loadData() {
+      document.getElementById("tableBody").innerHTML = "";
+      const raw = localStorage.getItem("data_" + currentAccount);
+      if (!raw) return;
+      JSON.parse(raw).forEach(row => addRow(row));
+    }
+
+    window.onload = () => {
+      if (!accounts.includes(currentAccount)) accounts.push(currentAccount);
+      renderAccounts(); loadData();
+    };
+  </script>
+</body>
+</html>
